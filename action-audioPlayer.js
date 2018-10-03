@@ -7,6 +7,8 @@ const _ = require('lodash');
 var client = mqtt.connect('mqtt://' + HOST, {port: 1883});
 
 var LISTED_TRACKS = [];
+var CURRENT_SONG;
+var AUDIO_PROCESS;
 const musicDir = '/home/pi/music/';
 
 client.on('connect', function () {
@@ -32,9 +34,26 @@ function browseDir(startPath, payload) {
 	return tracks;
 }
 
+function checkSong(startPath, trackName, payload) {
+	if (!fs.existsSync(musicDir)) {
+		console.log('Error: No directory');
+		var resp = {
+			'sessionId': payload.ssessionId,
+			'text': "Attention, il y a un probleme avec ta librairie"
+		}
+		client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
+	}
+	var tracks = fs.readdirSync(musicDir);
+	var needle = trackName + '.mp3';
+	var myTrack = _.filter(tracks, (track) => {
+		return track.toLowerCase() == needle.toLowerCase();
+	})
+	console.log(myTrack[0]);
+	return path.join(startPath, myTrack[0]);
+}
+
 client.on('message', function (topic, message) {
-	var payload = JSON.parse(message);
-	
+	var payload = JSON.parse(message);	
 	if (topic == 'hermes/intent/wzaim:discovery') {
 		var answer = '';
 		var tracks = browseDir(musicDir, payload);
@@ -47,39 +66,77 @@ client.on('message', function (topic, message) {
 		}
 		var resp = {
 			'sessionId': payload.sessionId,
-			'text': 'Je peux te proposer: ' + answer + '. En veux tu plus ?',
-			'intentFilter': ['wzaim:askForMore']
+			'text': 'Je peux te proposer: ' + answer + '. En veux tu plus ou as tu choisis ?',
+			'intentFilter': ['wzaim:askForMore', 'wzaim:selectTrack']
 		}
 		client.publish('hermes/dialogueManager/continueSession', JSON.stringify(resp));
 	}
 
 	if (topic == 'hermes/intent/wzaim:askForMore') {
-		var answer = '';
-		var tracks = browseDir(musicDir, payload);
-		_.forEach(tracks, function (track, key) {
-			tracks[key] = track.replace('.mp3', '');
-		})
-		tracks = tracks.filter(function (track) {
-			return LISTED_TRACKS.indexOf(track) == -1;
-		})
-		if (tracks.length != 0) {
-			for (var i = 0; (i < 3 && i < tracks.length); i++) {
-				answer += tracks[i] + ', ';
-				LISTED_TRACKS.push(tracks[i]);
+		if (payload.slots.length > 0 && payload.slots.rawValue.toLowerCase() == 'oui' || payload.slots.rawValue.toLowerCase() == 'okay') {
+			var answer = '';
+			var tracks = browseDir(musicDir, payload);
+			_.forEach(tracks, function (track, key) {
+				tracks[key] = track.replace('.mp3', '');
+			})
+			tracks = tracks.filter(function (track) {
+				return LISTED_TRACKS.indexOf(track) == -1;
+			})
+			if (tracks.length != 0) {
+				for (var i = 0; (i < 3 && i < tracks.length); i++) {
+					answer += tracks[i] + ', ';
+					LISTED_TRACKS.push(tracks[i]);
+				}
+				var resp = {
+					'sessionId': payload.sessionId,
+					'text': 'Je peux te proposer: ' + answer + '. En veux tu plus ?',
+					'intentFilter': ['wzaim:askForMore', 'wzaim:selectTrack', 'wzaim:stopProgram']
+				}
+				client.publish('hermes/dialogueManager/continueSession', JSON.stringify(resp));
+			} else {
+				var resp = {
+					'sessionId': payload.sessionId,
+					'text': "Il n'y a pas d'autres track disponible, dis moi quelle chanson jouer sinon dis stop ?"
+				}
+				client.publish('hermes/dialogueManager/continueSession', JSON.stringify(resp));
 			}
+		} else {
+			LISTED_TRACKS = [];
 			var resp = {
 				'sessionId': payload.sessionId,
-				'text': 'Je peux te proposer: ' + answer + '. En veux tu plus ?',
-				'intentFilter': ['wzaim:askForMore']
+				'text': 'Veux tu que je recommence, as tu trouve ta chanson ou preferes tu me laisser retourner dormir ?',
+				'intentFilter': ['wzaim:askForMore', 'wzaim:selectTrack', 'wzaim:stopProgram']
 			}
 			client.publish('hermes/dialogueManager/continueSession', JSON.stringify(resp));
-		} else {
+		}
+	}
+
+	if (topic == 'hermes/intent/wzaim:selectTrack') {
+		if (payload.slots.length > 0) {
+			var song = payload.slots[0].rawValue;
+			var selection = checkSong(musicDir, song, payload);
+			CURRENT_SONG = selection;
+			AUDIO_PROCESS = player.play(selection, function (err) {
+				if (err) {
+					console.log('Erreur ' + err);
+				}
+			});
 			var resp = {
 				'sessionId': payload.sessionId,
-				'text': "Il n'y a pas d'autres track disponible, as-tu fais ton choix ?"
+				'text': "Je vais jouer: " + song
 			}
 			client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
 		}
-		
+	}
+
+	if (topic == 'hermes/intent/wzaim:stopProgram') {
+		if (AUDIO_PROCESS) {
+			AUDIO_PROCESS.kill();
+		}
+		var resp = {
+			'sessionId': payload.sessionId,
+			'text': "Je retourne dormir"
+		}
+		client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
 	}
 })
