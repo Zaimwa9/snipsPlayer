@@ -44,7 +44,8 @@ function checkSong(startPath, trackName, payload) {
 		client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
 	}
 	var tracks = fs.readdirSync(musicDir);
-	var needle = trackName + '.mp3';
+	var needle = trackName.substr(trackName.length - 4) != '.mp3' ? trackName + '.mp3' : trackName;
+	console.log(needle);
 	var myTrack = _.filter(tracks, (track) => {
 		return track.toLowerCase() == needle.toLowerCase();
 	})
@@ -66,7 +67,7 @@ client.on('message', function (topic, message) {
 		}
 		var resp = {
 			'sessionId': payload.sessionId,
-			'text': 'Je peux te proposer: ' + answer + '. En veux tu plus ou as tu choisis ?',
+			'text': `Je peux te proposer: ${answer}. En veux tu plus ou as tu choisis ?`,
 			'intentFilter': ['wzaim:askForMore', 'wzaim:selectTrack']
 		}
 		client.publish('hermes/dialogueManager/continueSession', JSON.stringify(resp));
@@ -89,7 +90,7 @@ client.on('message', function (topic, message) {
 				}
 				var resp = {
 					'sessionId': payload.sessionId,
-					'text': 'Je peux te proposer: ' + answer + '. En veux tu plus ?',
+					'text': `Je peux te proposer: ${answer} . En veux tu plus ?`,
 					'intentFilter': ['wzaim:askForMore', 'wzaim:selectTrack', 'wzaim:stopProgram']
 				}
 				client.publish('hermes/dialogueManager/continueSession', JSON.stringify(resp));
@@ -112,6 +113,10 @@ client.on('message', function (topic, message) {
 	}
 
 	if (topic == 'hermes/intent/wzaim:selectTrack') {
+		if (AUDIO_PROCESS) {
+			AUDIO_PROCESS.kill();	
+		}
+
 		if (payload.slots.length > 0) {
 			var song = payload.slots[0].rawValue;
 			var selection = checkSong(musicDir, song, payload);
@@ -123,10 +128,33 @@ client.on('message', function (topic, message) {
 			});
 			var resp = {
 				'sessionId': payload.sessionId,
-				'text': "Je vais jouer: " + song
+				'text': `Je vais jouer ${song}.`
 			}
 			client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
 		}
+	}
+	
+	if (topic == 'hermes/intent/wzaim:skipTrack') {
+		var tracks = browseDir(musicDir, payload);
+		tracks = tracks.filter(function (track) {
+			return tracks.indexOf(CURRENT_SONG) == -1;
+		});
+		tracks = tracks.map(function (track) {
+			return path.join(musicDir, track);
+		})
+		if (AUDIO_PROCESS) {
+			AUDIO_PROCESS.kill();
+		}
+		AUDIO_PROCESS = player.play(tracks, {mpg123: ['--random', ]}, function (err) {
+			if (err) {
+				console.log('Erreur ' + err);
+			}
+		})
+		var resp = {
+			'sessionId': payload.sessionId,
+			'text': ''
+		}
+		client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
 	}
 
 	if (topic == 'hermes/intent/wzaim:stopProgram') {
