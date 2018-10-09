@@ -120,7 +120,8 @@ client.on('message', function (topic, message) {
 		if (payload.slots.length > 0) {
 			var song = payload.slots[0].rawValue;
 			var selection = checkSong(musicDir, song, payload);
-			CURRENT_SONG = selection;
+			var temp = selection.split('/');
+			CURRENT_SONG = temp.length > 0 ? temp[temp.length - 1].replace('.mp3', '') : selection;
 			AUDIO_PROCESS = player.play(selection, function (err) {
 				if (err) {
 					console.log('Erreur ' + err);
@@ -155,6 +156,23 @@ client.on('message', function (topic, message) {
 			'text': ''
 		}
 		client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
+	}
+
+	if (topic == 'hermes/intent/wzaim:askName') {
+		if (!AUDIO_PROCESS) {
+			var resp = {
+				'sessionId': payload.sessionId,
+				'text': `Aucun son en cours.`
+			}
+			client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
+		}
+		else {
+			var resp = {
+				'sessionId': payload.sessionId,
+				'text': `Je joue actuellement est ${CURRENT_SONG}`
+			}
+			client.publish('hermes/dialogueManager/endSession', JSON.stringify(resp));
+		}
 	}
 
 	if (topic == 'hermes/intent/wzaim:stopProgram') {
