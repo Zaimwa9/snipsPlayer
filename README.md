@@ -8,6 +8,8 @@ The playlistPath parameter should be the relative path from the root: './yourfol
 
 It is mandatory that _snips-skills has permissions to use audio.
 
+On your raspberry pi: `sudo usermod -a -G audio _snips-skills` and to all the appropriate groups.
+
 # How to use
 
 Everything happens on [Snips](https://snips.ai/). Link an app to this repo and you are all set up.
