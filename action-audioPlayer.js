@@ -1,15 +1,20 @@
+#!/usr/bin/env node
+
 const player = require('play-sound')(opts = {});
 const path = require('path');
 const fs = require('fs');
 const mqtt = require('mqtt');
 const HOST = 'localhost';
 const _ = require('lodash');
+const ini = require('ini');
+const config = ini.parse(fs.readFileSync('./config.ini', 'utf-8'));
+
 var client = mqtt.connect('mqtt://' + HOST, {port: 1883});
 
 var LISTED_TRACKS = [];
 var CURRENT_SONG;
 var AUDIO_PROCESS;
-const musicDir = '/home/pi/music/';
+const musicDir = config.secret.playlistPath.length > 0 ? config.secret.playlistPath : './';
 
 client.on('connect', function () {
 	console.log('connected to ' + HOST);
@@ -48,7 +53,7 @@ function checkSong(startPath, trackName, payload) {
 	var myTrack = _.filter(tracks, (track) => {
 		return track.toLowerCase() == needle.toLowerCase();
 	})
-	return path.join(startPath, myTrack[0]);
+	return `./${path.join(startPath, myTrack[0])}`;
 }
 
 client.on('message', function (topic, message) {
@@ -116,12 +121,13 @@ client.on('message', function (topic, message) {
 		if (AUDIO_PROCESS) {
 			AUDIO_PROCESS.kill();	
 		}
-
 		if (payload.slots.length > 0) {
 			var song = payload.slots[0].rawValue;
 			var selection = checkSong(musicDir, song, payload);
 			var temp = selection.split('/');
+			
 			CURRENT_SONG = temp.length > 0 ? temp[temp.length - 1].replace('.mp3', '') : selection;
+			
 			AUDIO_PROCESS = player.play(selection, function (err) {
 				if (err) {
 					console.log('Erreur ' + err);
